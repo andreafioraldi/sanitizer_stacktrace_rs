@@ -1,7 +1,5 @@
-use core::{ffi::c_void, mem::MaybeUninit, slice::from_raw_parts};
-use libc::getcontext;
-
 pub use backtrace::Symbol;
+use core::{ffi::c_void, ptr::null, slice::from_raw_parts};
 
 pub const STACK_TRACE_MAX: u32 = 255;
 
@@ -58,10 +56,7 @@ impl Stacktrace {
             let mut bp = 0;
             RUST_SANITIZER_STACKTRACE_get_pc_bp(&mut pc, &mut bp);
 
-            let mut ctx = MaybeUninit::uninit().assume_init();
-            getcontext(&mut ctx);
-
-            self.unwind_from(max_size, pc, bp, &ctx as *const _ as *const c_void);
+            self.unwind_from(max_size, pc, bp, null());
         }
     }
 
