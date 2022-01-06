@@ -1,4 +1,7 @@
-use core::ffi::c_void;
+use core::{ffi::c_void, mem::MaybeUninit, slice::from_raw_parts};
+use libc::getcontext;
+
+pub use backtrace::Symbol;
 
 pub const STACK_TRACE_MAX: u32 = 255;
 
@@ -55,16 +58,30 @@ impl Stacktrace {
             let mut bp = 0;
             RUST_SANITIZER_STACKTRACE_get_pc_bp(&mut pc, &mut bp);
 
-            self.unwind_from(max_size, pc, bp, core::ptr::null());
+            let mut ctx = MaybeUninit::uninit().assume_init();
+            getcontext(&mut ctx);
+
+            self.unwind_from(max_size, pc, bp, &ctx as *const _ as *const c_void);
         }
     }
 
     pub fn trace(&self) -> &[usize] {
         unsafe {
-            core::slice::from_raw_parts(
+            from_raw_parts(
                 RUST_SANITIZER_STACKTRACE_BufferedStackTrace_trace(self.ptr),
                 RUST_SANITIZER_STACKTRACE_BufferedStackTrace_size(self.ptr),
             )
+        }
+    }
+
+    pub fn symbolize<F>(&self, mut cb: F)
+    where
+        F: FnMut(usize, &Symbol),
+    {
+        for t in self.trace() {
+            backtrace::resolve(*t as _, |sym| {
+                cb(*t, sym);
+            });
         }
     }
 }
@@ -109,6 +126,16 @@ mod tests {
         for t in st.trace() {
             println!("{:#x}", previous_pc(*t));
         }
+        assert!(st.trace().len() > 0);
+    }
+
+    #[test]
+    fn rust2_works() {
+        let mut st = Stacktrace::new();
+        st.unwind(STACK_TRACE_MAX);
+        st.symbolize(|_addr, sym| {
+            println!("{:?}", sym);
+        });
         assert!(st.trace().len() > 0);
     }
 }
